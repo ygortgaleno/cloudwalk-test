@@ -18,52 +18,52 @@ type Node[T any] struct {
 }
 
 // Insert new element into AVL Tree
-func (t *AVLTree[T]) Insert(id uint32, data T) {
-	t.sync.Lock()
-	defer t.sync.Unlock()
-	t.Root = t.Root.insert(id, data)
+func (tree *AVLTree[T]) Insert(id uint32, data T) {
+	tree.sync.Lock()
+	defer tree.sync.Unlock()
+	tree.Root = tree.Root.insert(id, data)
 }
 
 // Searches node element in tree by id
-func (t *AVLTree[T]) Search(id uint32) (node *Node[T]) {
-	t.sync.RLock()
-	defer t.sync.RUnlock()
-	return t.Root.search(id)
+func (tree *AVLTree[T]) Search(id uint32) (node *Node[T]) {
+	tree.sync.RLock()
+	defer tree.sync.RUnlock()
+	return tree.Root.search(id)
 }
 
 // Prints tree in-order
-func (t *AVLTree[T]) Print() {
-	t.sync.RLock()
-	defer t.sync.RUnlock()
-	t.Root.print()
+func (tree *AVLTree[T]) Print() {
+	tree.sync.RLock()
+	defer tree.sync.RUnlock()
+	tree.Root.print()
 }
 
-func (n *Node[T]) insert(id uint32, data T) *Node[T] {
-	if n == nil {
+func (node *Node[T]) insert(id uint32, data T) *Node[T] {
+	if node == nil {
 		return &Node[T]{id, data, 1, nil, nil}
 	}
 
-	if id < n.Id {
-		n.Left = n.Left.insert(id, data)
-	} else if id > n.Id {
-		n.Right = n.Right.insert(id, data)
+	if id < node.Id {
+		node.Left = node.Left.insert(id, data)
+	} else if id > node.Id {
+		node.Right = node.Right.insert(id, data)
 	} else {
-		return n
+		return node
 	}
 
-	return n.balanceTree()
+	return node.balanceTree()
 }
 
-func (n *Node[T]) search(id uint32) *Node[T] {
-	if n == nil {
+func (node *Node[T]) search(id uint32) *Node[T] {
+	if node == nil {
 		return nil
 	}
-	if id < n.Id {
-		return n.Left.search(id)
-	} else if id > n.Id {
-		return n.Right.search(id)
+	if id < node.Id {
+		return node.Left.search(id)
+	} else if id > node.Id {
+		return node.Right.search(id)
 	} else {
-		return n
+		return node
 	}
 }
 
@@ -101,34 +101,34 @@ func (node *Node[T]) balanceTree() *Node[T] {
 	return node
 }
 
-func (currentNode *Node[T]) rotateLeft() *Node[T] {
-	newRoot := currentNode.Right
-	currentNode.Right = newRoot.Left
-	newRoot.Left = currentNode
+func (node *Node[T]) rotateLeft() *Node[T] {
+	newRoot := node.Right
+	node.Right = newRoot.Left
+	newRoot.Left = node
 
-	currentNode.calcNewHeight()
+	node.calcNewHeight()
 	newRoot.calcNewHeight()
 	return newRoot
 }
 
-func (currentNode *Node[T]) rotateRight() *Node[T] {
-	newRoot := currentNode.Left
-	currentNode.Left = newRoot.Right
-	newRoot.Right = currentNode
+func (node *Node[T]) rotateRight() *Node[T] {
+	newRoot := node.Left
+	node.Left = newRoot.Right
+	newRoot.Right = node
 
-	currentNode.calcNewHeight()
+	node.calcNewHeight()
 	newRoot.calcNewHeight()
 	return newRoot
 }
 
-func (n *Node[T]) print() {
-	if n == nil {
+func (node *Node[T]) print() {
+	if node == nil {
 		return
 	}
 
-	n.Left.print()
-	fmt.Println(n.Data, n.Id)
-	n.Right.print()
+	node.Left.print()
+	fmt.Println(node.Data, node.Id)
+	node.Right.print()
 }
 
 func getMax(a int, b int) int {
