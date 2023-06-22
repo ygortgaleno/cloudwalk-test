@@ -2,13 +2,11 @@ package services
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/ygortgaleno/cloudwalk-test/internals/dtos"
@@ -20,9 +18,16 @@ type PlayersAVLTree = pkg.AVLTree[entities.Player]
 
 type DeathCauseAVLTree = pkg.AVLTree[entities.DeathCause]
 
+type GameInfos struct {
+	*PlayersAVLTree
+	*DeathCauseAVLTree
+}
+
+type GameInfosAVLTree = pkg.AVLTree[GameInfos]
+
 type QuakeLogParserService struct{}
 
-func (svc QuakeLogParserService) Exec(filepath string) []byte {
+func (svc QuakeLogParserService) Exec(filepath string) map[string]dtos.GameDto {
 	file, err := os.OpenFile(filepath, os.O_RDONLY, os.ModeDevice)
 	if err != nil {
 		log.Fatal(err)
@@ -31,91 +36,58 @@ func (svc QuakeLogParserService) Exec(filepath string) []byte {
 
 	scanner := bufio.NewScanner(file)
 	rgxNewGameEvent := regexp.MustCompile("InitGame: ")
+	rgxKillEvent := regexp.MustCompile(`Kill: (\d+) (\d+) (\d+):\s(.*) killed (.*) by (\w+)`)
 
 	var fLine string
-	var pTree *PlayersAVLTree
-	var dcTree *DeathCauseAVLTree
-	var pTrees []*PlayersAVLTree
-	var dcTrees []*DeathCauseAVLTree
-	var wg sync.WaitGroup
+	gTree := &GameInfosAVLTree{}
+	gameCounter := 0
 
 	for scanner.Scan() {
 		fLine = scanner.Text()
 		if rgxNewGameEvent.Match([]byte(fLine)) {
-			pTree = &PlayersAVLTree{}
-			dcTree = &DeathCauseAVLTree{}
-			pTrees = append(pTrees, pTree)
-			dcTrees = append(dcTrees, dcTree)
+			gameCounter++
+			gTree.Insert(uint32(gameCounter), GameInfos{&PlayersAVLTree{}, &DeathCauseAVLTree{}})
+		} else if killEvent := rgxKillEvent.FindStringSubmatch(fLine); killEvent != nil {
+			svc.extractInfosFromKillEvent(killEvent, gTree.Search(uint32(gameCounter)))
 		}
-
-		wg.Add(1)
-		go func(str string, pTree *PlayersAVLTree, dcTree *DeathCauseAVLTree) {
-			defer wg.Done()
-			svc.extractInfosFromKillEvent(str, pTree, dcTree)
-		}(fLine, pTree, dcTree)
 	}
 
 	if err := scanner.Err(); err != nil {
 		log.Fatal(err)
 	}
-	wg.Wait()
 
-	ch := make(chan string)
-	wg.Add(len(pTrees))
-	for i := 0; i < len(pTrees); i++ {
-		go func(gameCounter int, pTree *PlayersAVLTree, dcTree *DeathCauseAVLTree) {
-			ch <- svc.transformTreeIntoGameDto(gameCounter, pTree, dcTree)
-			defer wg.Done()
-		}(i, pTrees[i], dcTrees[i])
-	}
+	gameMap := make(map[string]dtos.GameDto)
+	svc.transformTreeIntoMapGameDto(gTree.Root, &gameMap)
 
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	var jsons []string
-	for i := range ch {
-		jsons = append(jsons, i)
-	}
-
-	pTrees[20].Print()
-
-	return []byte(fmt.Sprintf("[%s]", strings.Join(jsons, ",\n")))
+	return gameMap
 }
 
-func (svc QuakeLogParserService) extractInfosFromKillEvent(str string, pTree *PlayersAVLTree, dcTree *DeathCauseAVLTree) {
-	rgxKillEvent := regexp.MustCompile(`Kill: (\d+) (\d+) (\d+):\s(.*) killed (.*) by (\w+)`)
-	rgxResult := rgxKillEvent.FindStringSubmatch(str)
+func (svc QuakeLogParserService) extractInfosFromKillEvent(killEvent []string, game *pkg.Node[GameInfos]) {
 
-	if rgxResult != nil {
-		idKiller, idVictim, idDeathCause, killerName, victimName, dcName := rgxResult[1], rgxResult[2],
-			rgxResult[3], rgxResult[4], rgxResult[5], rgxResult[6]
+	if killEvent != nil {
+		idKiller, idVictim, idDeathCause, killerName, victimName, dcName := killEvent[1], killEvent[2],
+			killEvent[3], killEvent[4], killEvent[5], killEvent[6]
 
 		var wg sync.WaitGroup
-		defer wg.Wait()
 		wg.Add(3)
 
-		// Killer insertion goroutine
-		go func(idStr string, name string) {
+		go func() {
 			defer wg.Done()
-			id, err := strconv.ParseUint(idStr, 10, 64)
+			idK, err := strconv.ParseUint(idKiller, 10, 64)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			if node := pTree.Search(uint32(id)); node != nil {
+			if node := game.Data.PlayersAVLTree.Search(uint32(idK)); node != nil {
 				node.Data.UpdatePlayerKill()
 			} else {
-				pTree.Insert(uint32(id), entities.Player{Name: name, Kills: 1, WorldDeaths: 0})
+				game.Data.PlayersAVLTree.Insert(uint32(idK), entities.Player{Name: killerName, Kills: 1, WorldDeaths: 0})
 			}
-		}(idKiller, killerName)
+		}()
 
-		// Victim insertion goroutine
-		go func(idStr string, name string, killerName string) {
+		go func() {
 			defer wg.Done()
-
-			id, err := strconv.ParseUint(idStr, 10, 64)
+			idV, err := strconv.ParseUint(idVictim, 10, 64)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -125,49 +97,64 @@ func (svc QuakeLogParserService) extractInfosFromKillEvent(str string, pTree *Pl
 				worldDeath++
 			}
 
-			if node := pTree.Search(uint32(id)); node != nil {
+			if node := game.Data.PlayersAVLTree.Search(uint32(idV)); node != nil {
 				node.Data.UpdateWorldDeaths(int64(worldDeath))
 			} else {
-				pTree.Insert(uint32(id), entities.Player{Name: name, Kills: 0, WorldDeaths: int64(worldDeath)})
+				game.Data.PlayersAVLTree.Insert(
+					uint32(idV),
+					entities.Player{Name: victimName, Kills: 0, WorldDeaths: int64(worldDeath)},
+				)
 			}
-		}(idVictim, victimName, killerName)
+		}()
 
-		// DeathCause insertion goroutine
-		go func(idStr string, name string) {
+		go func() {
 			defer wg.Done()
-
-			id, err := strconv.ParseUint(idStr, 10, 64)
+			idDc, err := strconv.ParseUint(idDeathCause, 10, 64)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			if node := dcTree.Search(uint32(id)); node != nil {
+			if node := game.Data.DeathCauseAVLTree.Search(uint32(idDc)); node != nil {
 				node.Data.UpdateCounter()
 			} else {
-				dcTree.Insert(uint32(id), entities.DeathCause{Name: name, Counter: 1})
+				game.Data.DeathCauseAVLTree.Insert(
+					uint32(idDc),
+					entities.DeathCause{Name: dcName, Counter: 1},
+				)
 			}
-		}(idDeathCause, dcName)
+		}()
+
+		wg.Wait()
 	}
 }
 
-func (svc QuakeLogParserService) transformTreeIntoGameDto(gameCounter int, pTree *PlayersAVLTree, dcTree *DeathCauseAVLTree) string {
-	gameDto := &dtos.GameDto{TotalKills: 0, Players: []string{}, Kills: map[string]int64{}, KillsByMeans: map[string]uint{}}
-	var wg sync.WaitGroup
-	wg.Add(2)
+func (svc QuakeLogParserService) transformTreeIntoMapGameDto(gameInfo *pkg.Node[GameInfos], gamesMap *map[string]dtos.GameDto) {
+	if gameInfo == nil {
+		return
+	}
 
-	go func() {
-		defer wg.Done()
-		svc.putPlayersTreeInfoIntoGameDto(pTree.Root, gameDto)
+	svc.transformTreeIntoMapGameDto(gameInfo.Left, gamesMap)
+
+	func() {
+		gameDto := &dtos.GameDto{TotalKills: 0, Players: []string{}, Kills: map[string]int64{}, KillsByMeans: map[string]uint{}}
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func(pTree *PlayersAVLTree, gameDto *dtos.GameDto) {
+			defer wg.Done()
+			svc.putPlayersTreeInfoIntoGameDto(pTree.Root, gameDto)
+		}(gameInfo.Data.PlayersAVLTree, gameDto)
+
+		go func(dcTree *DeathCauseAVLTree, gameDto *dtos.GameDto) {
+			defer wg.Done()
+			svc.putDeathCausesTreeInfoIntoGameDto(dcTree.Root, gameDto)
+		}(gameInfo.Data.DeathCauseAVLTree, gameDto)
+		wg.Wait()
+
+		(*gamesMap)[fmt.Sprintf("game_%d", gameInfo.Id)] = *gameDto
 	}()
 
-	go func() {
-		defer wg.Done()
-		svc.putDeathCausesTreeInfoIntoGameDto(dcTree.Root, gameDto)
-	}()
-	wg.Wait()
-	unmarsheledJson := map[string]dtos.GameDto{fmt.Sprintf("game_%d", gameCounter): *gameDto}
-	jsonBytes, _ := json.Marshal(unmarsheledJson)
-	return string(jsonBytes)
+	svc.transformTreeIntoMapGameDto(gameInfo.Right, gamesMap)
 }
 
 func (svc QuakeLogParserService) putPlayersTreeInfoIntoGameDto(pNode *pkg.Node[entities.Player], gDto *dtos.GameDto) {
