@@ -1,0 +1,37 @@
+name: Release QuakeLogparser
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: GoReleaser ParseQuakeLog
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - run: git fetch --force --tags
+
+      - name: Set up Go 1.20
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.20
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@master
+        with:
+          version: latest
+          args: release --rm-dist
+          workdir: ./cmd/parse_quake_log
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
