@@ -2,10 +2,8 @@ name: Release QuakeLogparser
 
 on:
   push:
-    branches:
-      - main
     tags:
-      - "*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: write
@@ -22,16 +20,16 @@ jobs:
           fetch-depth: 0
       - run: git fetch --force --tags
 
-      - name: Set up Go 1.20
+      - name: Set up Go 1.18
         uses: actions/setup-go@v4
         with:
           go-version: 1.18
-        id: go
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@master
         with:
           version: latest
           args: release --clean
+          workdir: cmd/parse_quake_log
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
