@@ -1,7 +1,6 @@
 package pkg
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -29,13 +28,6 @@ func (tree *AVLTree[T]) Search(id uint32) (node *Node[T]) {
 	tree.sync.RLock()
 	defer tree.sync.RUnlock()
 	return tree.Root.search(id)
-}
-
-// Prints tree in-order
-func (tree *AVLTree[T]) Print() {
-	tree.sync.RLock()
-	defer tree.sync.RUnlock()
-	tree.Root.print()
 }
 
 func (node *Node[T]) insert(id uint32, data T) *Node[T] {
@@ -79,9 +71,6 @@ func (node *Node[T]) calcNewHeight() {
 }
 
 func (node *Node[T]) balanceTree() *Node[T] {
-	if node == nil {
-		return node
-	}
 	node.calcNewHeight()
 
 	balanceFactor := node.Left.getHeight() - node.Right.getHeight()
@@ -119,16 +108,6 @@ func (node *Node[T]) rotateRight() *Node[T] {
 	node.calcNewHeight()
 	newRoot.calcNewHeight()
 	return newRoot
-}
-
-func (node *Node[T]) print() {
-	if node == nil {
-		return
-	}
-
-	node.Left.print()
-	fmt.Println(node.Data, node.Id)
-	node.Right.print()
 }
 
 func getMax(a int, b int) int {
