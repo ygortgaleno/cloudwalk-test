@@ -50,7 +50,7 @@ The way that I've decided to work on this parser was using AVL Tree for everythi
 
 The requirement to compile project
 
-- golang 1.20.5
+- golang 1.17+
 - make(optional)
 
 # Compiling
