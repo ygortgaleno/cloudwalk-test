@@ -63,69 +63,66 @@ func (svc QuakeLogParserService) Exec(filepath string) map[string]dtos.GameDto {
 }
 
 func (svc QuakeLogParserService) extractInfosFromKillEvent(killEvent []string, game *pkg.Node[GameInfos]) {
+	idKiller, idVictim, idDeathCause, killerName, victimName, dcName := killEvent[1], killEvent[2],
+		killEvent[3], killEvent[4], killEvent[5], killEvent[6]
 
-	if killEvent != nil {
-		idKiller, idVictim, idDeathCause, killerName, victimName, dcName := killEvent[1], killEvent[2],
-			killEvent[3], killEvent[4], killEvent[5], killEvent[6]
+	var wg sync.WaitGroup
+	wg.Add(3)
 
-		var wg sync.WaitGroup
-		wg.Add(3)
+	go func() {
+		defer wg.Done()
+		idK, err := strconv.ParseUint(idKiller, 10, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-		go func() {
-			defer wg.Done()
-			idK, err := strconv.ParseUint(idKiller, 10, 64)
-			if err != nil {
-				log.Fatal(err)
-			}
+		if node := game.Data.PlayersAVLTree.Search(uint32(idK)); node != nil {
+			node.Data.UpdatePlayerKill()
+		} else {
+			game.Data.PlayersAVLTree.Insert(uint32(idK), entities.Player{Name: killerName, Kills: 1, WorldDeaths: 0})
+		}
+	}()
 
-			if node := game.Data.PlayersAVLTree.Search(uint32(idK)); node != nil {
-				node.Data.UpdatePlayerKill()
-			} else {
-				game.Data.PlayersAVLTree.Insert(uint32(idK), entities.Player{Name: killerName, Kills: 1, WorldDeaths: 0})
-			}
-		}()
+	go func() {
+		defer wg.Done()
+		idV, err := strconv.ParseUint(idVictim, 10, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-		go func() {
-			defer wg.Done()
-			idV, err := strconv.ParseUint(idVictim, 10, 64)
-			if err != nil {
-				log.Fatal(err)
-			}
+		worldDeath := 0
+		if killerName == "<world>" {
+			worldDeath++
+		}
 
-			worldDeath := 0
-			if killerName == "<world>" {
-				worldDeath++
-			}
+		if node := game.Data.PlayersAVLTree.Search(uint32(idV)); node != nil {
+			node.Data.UpdateWorldDeaths(int64(worldDeath))
+		} else {
+			game.Data.PlayersAVLTree.Insert(
+				uint32(idV),
+				entities.Player{Name: victimName, Kills: 0, WorldDeaths: int64(worldDeath)},
+			)
+		}
+	}()
 
-			if node := game.Data.PlayersAVLTree.Search(uint32(idV)); node != nil {
-				node.Data.UpdateWorldDeaths(int64(worldDeath))
-			} else {
-				game.Data.PlayersAVLTree.Insert(
-					uint32(idV),
-					entities.Player{Name: victimName, Kills: 0, WorldDeaths: int64(worldDeath)},
-				)
-			}
-		}()
+	go func() {
+		defer wg.Done()
+		idDc, err := strconv.ParseUint(idDeathCause, 10, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
 
-		go func() {
-			defer wg.Done()
-			idDc, err := strconv.ParseUint(idDeathCause, 10, 64)
-			if err != nil {
-				log.Fatal(err)
-			}
+		if node := game.Data.DeathCauseAVLTree.Search(uint32(idDc)); node != nil {
+			node.Data.UpdateCounter()
+		} else {
+			game.Data.DeathCauseAVLTree.Insert(
+				uint32(idDc),
+				entities.DeathCause{Name: dcName, Counter: 1},
+			)
+		}
+	}()
 
-			if node := game.Data.DeathCauseAVLTree.Search(uint32(idDc)); node != nil {
-				node.Data.UpdateCounter()
-			} else {
-				game.Data.DeathCauseAVLTree.Insert(
-					uint32(idDc),
-					entities.DeathCause{Name: dcName, Counter: 1},
-				)
-			}
-		}()
-
-		wg.Wait()
-	}
+	wg.Wait()
 }
 
 func (svc QuakeLogParserService) transformTreeIntoMapGameDto(gameInfo *pkg.Node[GameInfos], gamesMap *map[string]dtos.GameDto) {
